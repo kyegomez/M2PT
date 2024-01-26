@@ -9,7 +9,39 @@ Implementation of M2PT in PyTorch from the paper: "Multimodal Pathway: Improve T
 
 ## Usage
 
+### `MPTransformerBlock`
 
+- Implementation of Figure 2 and the Multimodal Pathway Transformer
+
+- Re-Usable and Modular.
+
+- Combines linear projections from multiple models
+
+
+
+```python
+import torch 
+from m2pt import MPTransformerBlock
+
+model = MPTransformerBlock(
+    dim=512,
+    dim_head=64,
+    heads=8,
+    ff_mult=4,
+    dropout=0.1,
+    original_linear=nn.Linear(512, 512),
+    auxiliar_linear=nn.Linear(512, 512),
+)
+
+# 3D tensor B x S x D
+x = torch.randn(1, 512, 512)
+
+out = model(x)
+
+print(out.shape)
+
+
+```
 
 
 ### `CrossModalReparameterization`
@@ -17,7 +49,7 @@ Implementation of M2PT in PyTorch from the paper: "Multimodal Pathway: Improve T
 
 - It combines the linear methods of different multi-modal models and kinda merges them through addition and a constant value lambda or Cross Modal Scale
 
-- Modular & Re-usable: 
+- Modular & Re-usable: Simply plug in your linears from any models!
 
 ```python
 import torch

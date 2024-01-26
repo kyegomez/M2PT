@@ -1,6 +1,7 @@
 import torch
 from torch import nn, Tensor
 from zeta.nn.attention.multihead_attention import MultiheadAttention
+from typing import List, Optional
 
 
 class CrossModalReParametrization(nn.Module):
@@ -23,6 +24,7 @@ class CrossModalReParametrization(nn.Module):
         self,
         original_linear: nn.Linear,
         auxiliary_linear: nn.Linear,
+        linears: List[nn.Linear] = None,
     ):
         super().__init__()
         self.original_linear = original_linear
@@ -54,6 +56,19 @@ class CrossModalReParametrization(nn.Module):
 
 
 class MPTransformerBlock(nn.Module):
+    """
+    Multi-Modal Transformer Block.
+
+    Args:
+        dim (int): Dimension of the input.
+        dim_head (int): Dimension of each attention head.
+        heads (int): Number of attention heads.
+        ff_mult (int): Multiplier for the feed-forward layer dimension.
+        dropout (float): Dropout rate.
+        original_linear (nn.Linear): Linear layer for the original modality.
+        auxiliar_linear (nn.Linear): Linear layer for the auxiliary modality.
+    """
+
     def __init__(
         self,
         dim: int,
@@ -93,6 +108,15 @@ class MPTransformerBlock(nn.Module):
         )
 
     def forward(self, x: Tensor):
+        """
+        Forward pass of the Multi-Modal Transformer Block.
+
+        Args:
+            x (Tensor): Input tensor.
+
+        Returns:
+            Tensor: Output tensor.
+        """
         skip = x
         x = self.norm(x)
 
@@ -105,8 +129,6 @@ class MPTransformerBlock(nn.Module):
         print(f"All shapes: {q.shape}, {k.shape}, {v.shape}")
 
         # Attention
-        # attn, _, _ = self.attn(q, k, v)
-        # attn = self.flash_attn(q, k, v)
         attn = self.mha(q, k, v)
 
         # After attention projections
@@ -115,30 +137,13 @@ class MPTransformerBlock(nn.Module):
         # Norm
         attn_out_norm = self.norm(attn_out)
 
-        # Reparameterization agin
+        # Reparameterization again
         norm_then_reparam = self.reparametrization(attn_out_norm)
 
-        # Reparameterization agin
+        # Reparameterization again
         reparam_them_reparam = self.reparametrization(
             norm_then_reparam
         )
 
         return reparam_them_reparam + attn_out_norm
 
-
-model = MPTransformerBlock(
-    dim=512,
-    dim_head=64,
-    heads=8,
-    ff_mult=4,
-    dropout=0.1,
-    original_linear=nn.Linear(512, 512),
-    auxiliar_linear=nn.Linear(512, 512),
-)
-
-# 3D tensor B x S x D
-x = torch.randn(1, 512, 512)
-
-out = model(x)
-
-print(out.shape)
