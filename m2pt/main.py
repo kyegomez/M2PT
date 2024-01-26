@@ -1,14 +1,6 @@
 import torch
 from torch import nn, Tensor
-from einops import rearrange, repeat, reduce
-from zeta.nn import (
-    Attention,
-    FeedForward,
-    Residual,
-    PreNorm,
-    FlashAttention,
-)
-from dataclasses import dataclass, field
+from zeta.nn.attention.multihead_attention import MultiheadAttention
 
 
 class CrossModalReParametrization(nn.Module):
@@ -26,6 +18,7 @@ class CrossModalReParametrization(nn.Module):
         forward(x: Tensor) -> Tensor: Performs forward pass through the module.
         merge(): Merges the weights and biases of the original and auxiliary linear layers.
     """
+
     def __init__(
         self,
         original_linear: nn.Linear,
@@ -69,7 +62,7 @@ class MPTransformerBlock(nn.Module):
         ff_mult: int,
         dropout: float,
         original_linear: nn.Linear,
-        auxiliar_linear: nn.Linear,       
+        auxiliar_linear: nn.Linear,
     ):
         super().__init__()
         self.dim = dim
@@ -79,36 +72,6 @@ class MPTransformerBlock(nn.Module):
         self.dropout = dropout
         self.original_linear = original_linear
         self.auxiliar_linear = auxiliar_linear
-        
-        
-        
-        
-        self.aux_q, self.aux_k, self.aux_v = (
-            nn.Linear(self.dim, self.dim),
-            nn.Linear(self.dim, self.dim),
-            nn.Linear(self.dim, self.dim),
-        )
-
-        self.target_q, self.target_k, self.target_v = (
-            nn.Linear(self.dim, self.dim),
-            nn.Linear(self.dim, self.dim),
-            nn.Linear(self.dim, self.dim),
-        )
-        
-        
-        # Multi Query Attention
-        self.attn = MultiQueryAttention(
-            self.dim,
-            self.heads,
-        )
-
-        # After attention projections
-        self.aux_after_attn_proj = nn.Linear(self.dim, self.dim)
-        self.target_a_attn_proj = nn.Linear(self.dim, self.dim)
-
-        # After norm projections
-        self.after_norm_aux_proj = nn.Linear(self.dim, self.dim)
-        self.after_norm_target_proj = nn.Linear(self.dim, self.dim)
 
         # Cross modal reparametrization
         self.reparametrization = CrossModalReParametrization(
@@ -117,16 +80,18 @@ class MPTransformerBlock(nn.Module):
 
         # Norm
         self.norm = nn.LayerNorm(self.dim)
-        
-        
+
         # Check for gpu
         self.is_cuda = torch.cuda.is_available()
 
         # Flash Attention
-        self.flash_attn = 
-        
-        
-        
+        self.mha = MultiheadAttention(
+            dim,
+            heads,
+            dropout,
+            subln=True,
+        )
+
     def forward(self, x: Tensor):
         skip = x
         x = self.norm(x)
@@ -137,25 +102,29 @@ class MPTransformerBlock(nn.Module):
             self.reparametrization(x),
             self.reparametrization(x),
         )
-        
+        print(f"All shapes: {q.shape}, {k.shape}, {v.shape}")
+
         # Attention
         # attn, _, _ = self.attn(q, k, v)
-        attn = self.flash_attn(q, k, v)
-        
+        # attn = self.flash_attn(q, k, v)
+        attn = self.mha(q, k, v)
+
         # After attention projections
         attn_out = self.reparametrization(attn) + skip
-        
+
         # Norm
         attn_out_norm = self.norm(attn_out)
-        
+
         # Reparameterization agin
         norm_then_reparam = self.reparametrization(attn_out_norm)
-        
+
         # Reparameterization agin
-        reparam_them_reparam = self.reparametrization(norm_then_reparam)
-        
+        reparam_them_reparam = self.reparametrization(
+            norm_then_reparam
+        )
+
         return reparam_them_reparam + attn_out_norm
-    
+
 
 model = MPTransformerBlock(
     dim=512,
