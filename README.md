@@ -1,6 +1,9 @@
 [![Multi-Modality](agorabanner.png)](https://discord.gg/qUtxnK2NMf)
 
 # Multi-Modal Pathway Transformer
+
+![Diagram](diagram.png)
+
 Implementation of M2PT in PyTorch from the paper: "Multimodal Pathway: Improve Transformers with Irrelevant Data from Other Modalities".  [PAPER LINK](https://arxiv.org/abs/2401.14405)
 
 
