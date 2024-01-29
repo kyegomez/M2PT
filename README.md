@@ -4,7 +4,7 @@
 
 ![Diagram](diagram.png)
 
-Implementation of M2PT in PyTorch from the paper: "Multimodal Pathway: Improve Transformers with Irrelevant Data from Other Modalities".  [PAPER LINK](https://arxiv.org/abs/2401.14405)
+Implementation of M2PT in PyTorch from the paper: "Multimodal Pathway: Improve Transformers with Irrelevant Data from Other Modalities".  [PAPER LINK](https://arxiv.org/abs/2401.14405). This is really really cool because just by merging the projections of different multi-modal models together you can increase the performance of your base model.
 
 
 ## Install
