@@ -55,6 +55,56 @@ class CrossModalReparamLinear(nn.Linear):
         return F.linear(input, weight, self.bias)
 
 
+def cross_modal_ffn(
+    ffn_original_linear: nn.Linear,
+    ffn_auxiliar_linear: nn.Linear,
+    dim: int,
+    ff_mult: int,
+    dropout: int,
+    ffn_original_last_linear: nn.Linear,
+    ffn_aux_last_linear: nn.Linear,
+    *args,
+    **kwargs,
+):
+    """
+    Cross-modal feed-forward network.
+
+    Args:
+        ffn_original_linear (nn.Linear): Linear layer for the original modality.
+        ffn_auxiliar_linear (nn.Linear): Linear layer for the auxiliary modality.
+        dim (int): Dimension of the input.
+        ff_mult (int): Multiplier for the hidden dimension.
+        dropout (int): Dropout rate.
+        ffn_original_last_linear (nn.Linear): Linear layer for the original modality in the last step.
+        ffn_aux_last_linear (nn.Linear): Linear layer for the auxiliary modality in the last step.
+        *args: Variable length arguments.
+        **kwargs: Keyword arguments.
+
+    Returns:
+        nn.Sequential: Sequential model representing the cross-modal feed-forward network.
+    """
+
+    ffn_1st_rep_linear = CrossModalReParametrization(
+        ffn_original_linear(dim, dim * ff_mult),
+        ffn_auxiliar_linear(dim, dim * ff_mult),
+    )
+
+    ffn_2nd_linear = CrossModalReParametrization(
+        ffn_original_last_linear(dim * ff_mult, dim),
+        ffn_aux_last_linear(dim * ff_mult, dim),
+    )
+
+    return nn.Sequential(
+        ffn_1st_rep_linear,
+        nn.GELU(),
+        nn.Dropout(dropout),
+        nn.LayerNorm(dim**ff_mult),
+        nn.GELU(),
+        ffn_2nd_linear,
+        nn.LayerNorm(dim),
+    )
+
+
 def build_cross_modal_reparam_linear(origin_layer, aux_layer):
     assert origin_layer.weight.size() == aux_layer.weight.size()
     return CrossModalReparamLinear(
@@ -99,6 +149,15 @@ def reparameterize_aux_into_target_model(
     layer_names=("attn.qkv", "attn.proj", "mlp.fc1", "mlp.fc2"),
     main_body_name="blocks",
 ):
+    """
+    Reparameterizes the auxiliary model into the target model by replacing specific layers with corresponding layers from the auxiliary model.
+
+    Args:
+        target_model (object): The target model to reparameterize.
+        aux_model (object): The auxiliary model containing the replacement layers.
+        layer_names (tuple, optional): The names of the layers to be replaced. Defaults to ("attn.qkv", "attn.proj", "mlp.fc1", "mlp.fc2").
+        main_body_name (str, optional): The name of the main body of the models. Defaults to "blocks".
+    """
     target_transformer_blocks = _get_attr_by_name(
         target_model, main_body_name
     )
@@ -173,7 +232,6 @@ class MPTransformerBlock(nn.Module):
         dim (int): Dimension of the input.
         dim_head (int): Dimension of each attention head.
         heads (int): Number of attention heads.
-        ff_mult (int): Multiplier for the feed-forward layer dimension.
         dropout (float): Dropout rate.
         original_linear (nn.Linear): Linear layer for the original modality.
         auxiliar_linear (nn.Linear): Linear layer for the auxiliary modality.
@@ -184,19 +242,46 @@ class MPTransformerBlock(nn.Module):
         dim: int,
         dim_head: int,
         heads: int,
-        ff_mult: int,
         dropout: float,
+        ff_mult: int,
         original_linear: nn.Linear,
         auxiliar_linear: nn.Linear,
+        ffn_original_linear: nn.Linear,
+        ffn_auxiliar_linear: nn.Linear,
+        ffn_original_last_linear: nn.Linear,
+        ffn_aux_last_linear: nn.Linear,
     ):
         super().__init__()
         self.dim = dim
         self.dim_head = dim_head
         self.heads = heads
-        self.ff_mult = ff_mult
         self.dropout = dropout
+        self.ff_mult = ff_mult
         self.original_linear = original_linear
         self.auxiliar_linear = auxiliar_linear
+        self.ffn_auxiliar_linear = ffn_auxiliar_linear
+        self.ffn_original_last_linear = ffn_original_last_linear
+        self.ffn_aux_last_linear = ffn_aux_last_linear
+
+        self.ffn_1st_rep_linear = CrossModalReParametrization(
+            ffn_original_linear(dim, dim * ff_mult),
+            self.ffn_auxiliar_linear(dim, dim * ff_mult),
+        )
+
+        self.ffn_2nd_linear = CrossModalReParametrization(
+            ffn_original_last_linear(dim * ff_mult, dim),
+            ffn_aux_last_linear(dim * ff_mult, dim),
+        )
+
+        self.ffn = nn.Sequential(
+            self.ffn_1st_rep_linear,
+            nn.GELU(),
+            nn.Dropout(),
+            nn.LayerNorm(dim**ff_mult),
+            nn.GELU(),
+            self.ffn_2nd_linear,
+            nn.LayerNorm(dim),
+        )
 
         # Cross modal reparametrization
         self.reparametrization = CrossModalReParametrization(
@@ -255,4 +340,9 @@ class MPTransformerBlock(nn.Module):
             norm_then_reparam
         )
 
-        return reparam_them_reparam + attn_out_norm
+        # FFN
+        ffn = self.ffn(reparam_them_reparam)
+
+        return self.norm(ffn)
+
+        # return reparam_them_reparam + attn_out_norm
