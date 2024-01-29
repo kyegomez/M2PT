@@ -346,3 +346,105 @@ class MPTransformerBlock(nn.Module):
         return self.norm(ffn)
 
         # return reparam_them_reparam + attn_out_norm
+
+
+
+class M2PT(nn.Module):
+    """
+    M2PT (Multi-Perspective Transformer) model.
+
+    Args:
+        dim (int): Dimension of the model.
+        depth (int): Number of transformer blocks.
+        num_tokens (int): Number of tokens in the input.
+        dim_head (int): Dimension of each attention head.
+        heads (int): Number of attention heads.
+        dropout (float): Dropout rate.
+        ff_mult (int): Multiplier for the feed-forward network dimension.
+        original_linear (nn.Linear): Linear layer for the original input.
+        auxiliar_linear (nn.Linear): Linear layer for the auxiliary input.
+        ffn_original_linear (nn.Linear): Linear layer for the original input in the feed-forward network.
+        ffn_auxiliar_linear (nn.Linear): Linear layer for the auxiliary input in the feed-forward network.
+        ffn_original_last_linear (nn.Linear): Last linear layer for the original input in the feed-forward network.
+        ffn_aux_last_linear (nn.Linear): Last linear layer for the auxiliary input in the feed-forward network.
+    """
+
+    def __init__(
+        self,
+        dim: int,
+        depth: int,
+        num_tokens: int,
+        dim_head: int,
+        heads: int,
+        dropout: float,
+        ff_mult: int,
+        original_linear: nn.Linear,
+        auxiliar_linear: nn.Linear,
+        ffn_original_linear: nn.Linear,
+        ffn_auxiliar_linear: nn.Linear,
+        ffn_original_last_linear: nn.Linear,
+        ffn_aux_last_linear: nn.Linear,
+    ):
+        super().__init__()
+        self.dim = dim
+        self.depth = depth
+        self.num_tokens = num_tokens
+        self.dim_head = dim_head
+        self.heads = heads
+        self.dropout = dropout
+        self.ff_mult = ff_mult
+        self.original_linear = original_linear
+        self.auxiliar_linear = auxiliar_linear
+        self.ffn_original_linear = ffn_original_linear
+        self.ffn_auxiliar_linear = ffn_auxiliar_linear
+        self.ffn_original_last_linear = ffn_original_last_linear
+        self.ffn_aux_last_linear = ffn_aux_last_linear
+        
+        self.layers = nn.ModuleList([])
+        
+        for _ in range(depth):
+            self.layers.append(
+                MPTransformerBlock(
+                    dim=dim,
+                    dim_head=dim_head,
+                    heads=heads,
+                    dropout=dropout,
+                    ff_mult=ff_mult,
+                    original_linear=original_linear,
+                    auxiliar_linear=auxiliar_linear,
+                    ffn_original_linear=ffn_original_linear,
+                    ffn_auxiliar_linear=ffn_auxiliar_linear,
+                    ffn_original_last_linear=ffn_original_last_linear,
+                    ffn_aux_last_linear=ffn_aux_last_linear,
+                )
+            )
+            
+        self.norm = nn.LayerNorm(dim)
+        
+        self.embedding =  nn.Embedding(num_tokens, dim)
+        
+        self.to_out = nn.Sequential(
+            nn.Linear(dim, num_tokens),
+            nn.Softmax(dim=-1),
+            # nn.LayerNorm(dim)
+        )
+            
+        
+    def forward(self, x: Tensor):
+        """
+        Forward pass of the M2PT model.
+
+        Args:
+            x (Tensor): Input tensor of shape (batch_size, sequence_length).
+
+        Returns:
+            Tensor: Output tensor of shape (batch_size, sequence_length, num_tokens).
+        """
+        x = self.embedding(x)
+        
+        for layer in self.layers:
+            x = layer(x) + x
+        
+        x = self.to_out(x)
+        
+        return self.norm(x)
